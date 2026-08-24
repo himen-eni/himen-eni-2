@@ -1,0 +1,6 @@
+{
+  "name": "E & I Documents",
+  "description": "Electrical & Instrumentation Engineering Structure Explorer, Document Management & AI PO/SO Rate Extraction System",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
