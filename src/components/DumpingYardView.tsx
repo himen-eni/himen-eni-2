@@ -28,7 +28,7 @@ import {
 
 interface DumpingYardViewProps {
   projects: StructureProject[];
-  onOpenDocumentModal: (project: StructureProject, section: DocumentSection) => void;
+  onOpenDocumentModal: (project: StructureProject, section: DocumentSection, specificDocId?: string) => void;
   onOpenUpload: (project?: StructureProject, docType?: DocumentType) => void;
   onDeleteDocument: (projectId: string, docType: DocumentType, docId: string) => void;
 }
@@ -230,14 +230,28 @@ export const DumpingYardView: React.FC<DumpingYardViewProps> = ({
                           {project.materialIndentStatus.documents.map((doc) => (
                             <div
                               key={doc.id}
-                              className="p-1.5 rounded-lg bg-[#0f172a] border border-[#334155] flex items-center justify-between gap-1.5 text-[10px]"
+                              onClick={() => onOpenDocumentModal(project, project.materialIndentStatus, doc.id)}
+                              className="p-1.5 rounded-lg bg-[#0f172a] hover:bg-[#131d33] border border-[#334155] hover:border-[#38bdf8]/40 flex items-center justify-between gap-1.5 text-[10px] cursor-pointer transition-colors group"
                             >
-                              <span className="truncate flex-1 text-[#f8fafc]" title={doc.name}>
+                              <span className="truncate flex-1 text-[#f8fafc] group-hover:text-[#38bdf8]" title={doc.name}>
                                 {doc.name}
                               </span>
                               <div className="flex items-center gap-1 shrink-0">
                                 <button
-                                  onClick={() => downloadDocumentFile(doc, project)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenDocumentModal(project, project.materialIndentStatus, doc.id);
+                                  }}
+                                  className="p-0.5 text-[#94a3b8] hover:text-[#38bdf8]"
+                                  title="View document"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadDocumentFile(doc, project);
+                                  }}
                                   className="p-0.5 text-[#94a3b8] hover:text-[#4ade80]"
                                   title="Download Excel (.xlsx)"
                                 >
@@ -322,10 +336,11 @@ export const DumpingYardView: React.FC<DumpingYardViewProps> = ({
                           {project.poStatus.documents.map((doc) => (
                             <div
                               key={doc.id}
-                              className="p-1.5 rounded-lg bg-[#0f172a] border border-[#22c55e]/30 flex items-center justify-between gap-1.5 text-[10px]"
+                              onClick={() => onOpenDocumentModal(project, project.poStatus, doc.id)}
+                              className="p-1.5 rounded-lg bg-[#0f172a] hover:bg-[#131d33] border border-[#22c55e]/30 hover:border-[#22c55e]/70 flex items-center justify-between gap-1.5 text-[10px] cursor-pointer transition-colors group"
                             >
                               <div className="truncate flex-1 min-w-0">
-                                <span className="block text-[#f8fafc] truncate" title={doc.name}>
+                                <span className="block text-[#f8fafc] group-hover:text-[#4ade80] truncate transition-colors" title={doc.name}>
                                   {doc.name}
                                 </span>
                                 {doc.amount ? (
@@ -336,7 +351,20 @@ export const DumpingYardView: React.FC<DumpingYardViewProps> = ({
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
                                 <button
-                                  onClick={() => downloadDocumentFile(doc, project)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenDocumentModal(project, project.poStatus, doc.id);
+                                  }}
+                                  className="p-0.5 text-[#94a3b8] hover:text-[#4ade80]"
+                                  title="View PO document & digitized sheet"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadDocumentFile(doc, project);
+                                  }}
                                   className="p-0.5 text-[#94a3b8] hover:text-[#4ade80]"
                                   title="Download Excel (.xlsx)"
                                 >
@@ -415,14 +443,28 @@ export const DumpingYardView: React.FC<DumpingYardViewProps> = ({
                           {project.serviceIndentStatus.documents.map((doc) => (
                             <div
                               key={doc.id}
-                              className="p-1.5 rounded-lg bg-[#0f172a] border border-[#334155] flex items-center justify-between gap-1.5 text-[10px]"
+                              onClick={() => onOpenDocumentModal(project, project.serviceIndentStatus, doc.id)}
+                              className="p-1.5 rounded-lg bg-[#0f172a] hover:bg-[#131d33] border border-[#334155] hover:border-[#38bdf8]/40 flex items-center justify-between gap-1.5 text-[10px] cursor-pointer transition-colors group"
                             >
-                              <span className="truncate flex-1 text-[#f8fafc]" title={doc.name}>
+                              <span className="truncate flex-1 text-[#f8fafc] group-hover:text-[#38bdf8]" title={doc.name}>
                                 {doc.name}
                               </span>
                               <div className="flex items-center gap-1 shrink-0">
                                 <button
-                                  onClick={() => downloadDocumentFile(doc, project)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenDocumentModal(project, project.serviceIndentStatus, doc.id);
+                                  }}
+                                  className="p-0.5 text-[#94a3b8] hover:text-[#38bdf8]"
+                                  title="View document"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadDocumentFile(doc, project);
+                                  }}
                                   className="p-0.5 text-[#94a3b8] hover:text-[#38bdf8]"
                                   title="Download Excel (.xlsx)"
                                 >
@@ -507,10 +549,11 @@ export const DumpingYardView: React.FC<DumpingYardViewProps> = ({
                           {project.soStatus.documents.map((doc) => (
                             <div
                               key={doc.id}
-                              className="p-1.5 rounded-lg bg-[#0f172a] border border-[#38bdf8]/30 flex items-center justify-between gap-1.5 text-[10px]"
+                              onClick={() => onOpenDocumentModal(project, project.soStatus, doc.id)}
+                              className="p-1.5 rounded-lg bg-[#0f172a] hover:bg-[#131d33] border border-[#38bdf8]/30 hover:border-[#38bdf8]/70 flex items-center justify-between gap-1.5 text-[10px] cursor-pointer transition-colors group"
                             >
                               <div className="truncate flex-1 min-w-0">
-                                <span className="block text-[#f8fafc] truncate" title={doc.name}>
+                                <span className="block text-[#f8fafc] group-hover:text-[#38bdf8] truncate transition-colors" title={doc.name}>
                                   {doc.name}
                                 </span>
                                 {doc.amount ? (
@@ -521,7 +564,20 @@ export const DumpingYardView: React.FC<DumpingYardViewProps> = ({
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
                                 <button
-                                  onClick={() => downloadDocumentFile(doc, project)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenDocumentModal(project, project.soStatus, doc.id);
+                                  }}
+                                  className="p-0.5 text-[#94a3b8] hover:text-[#38bdf8]"
+                                  title="View SO document & digitized sheet"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadDocumentFile(doc, project);
+                                  }}
                                   className="p-0.5 text-[#94a3b8] hover:text-[#38bdf8]"
                                   title="Download Excel (.xlsx)"
                                 >

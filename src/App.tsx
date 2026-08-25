@@ -70,6 +70,7 @@ export default function App() {
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
   const [selectedProjectForDoc, setSelectedProjectForDoc] = useState<StructureProject | null>(null);
   const [selectedSectionForDoc, setSelectedSectionForDoc] = useState<DocumentSection | null>(null);
+  const [selectedDocIdForDoc, setSelectedDocIdForDoc] = useState<string | null>(null);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadProjectTarget, setUploadProjectTarget] = useState<StructureProject | null>(null);
@@ -86,10 +87,15 @@ export default function App() {
     setTimeout(() => setToastMsg(null), 3500);
   };
 
-  // Open Document Modal
-  const handleOpenDocumentModal = (project: StructureProject, section: DocumentSection) => {
+  // Open Document Modal with optional specific document ID
+  const handleOpenDocumentModal = (
+    project: StructureProject,
+    section: DocumentSection,
+    specificDocId?: string
+  ) => {
     setSelectedProjectForDoc(project);
     setSelectedSectionForDoc(section);
+    setSelectedDocIdForDoc(specificDocId || null);
     setIsDocModalOpen(true);
   };
 
@@ -416,9 +422,13 @@ export default function App() {
       {/* Modals */}
       <DocumentModal
         isOpen={isDocModalOpen}
-        onClose={() => setIsDocModalOpen(false)}
+        onClose={() => {
+          setIsDocModalOpen(false);
+          setSelectedDocIdForDoc(null);
+        }}
         project={selectedProjectForDoc}
         section={selectedSectionForDoc}
+        initialDocId={selectedDocIdForDoc}
         onDeleteDocument={handleDeleteDocument}
         onOpenUpload={(proj, type) => handleOpenUpload(proj, type)}
       />

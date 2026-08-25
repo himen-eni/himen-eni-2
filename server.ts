@@ -206,8 +206,8 @@ async function startServer() {
 
       const isIndent = docType === "MATERIAL_INDENT" || docType === "SERVICE_INDENT";
 
-      const systemPrompt = `You are an expert procurement, contracts, engineering requisition, and financial document auditor specializing in Indian industrial engineering, electrical, instrumentation, and EPC projects (such as RBM Infracon, Adani Wilmar, Epitome Industries).
-Your task is to analyze the provided document (Purchase Order, Service Order, Material Indent, or Service Indent) and extract precise commercial details, vendor metadata, line items (BOQ), requisition details, and taxes.
+      const systemPrompt = `You are an expert procurement, contracts, engineering requisition, and financial document auditor specializing in Indian industrial engineering, electrical, instrumentation, and EPC projects (such as RBM Infracon, Adani Wilmar, Epitome Industries, L&T, Siemens).
+Your task is to analyze ANY uploaded document format (Purchase Order, Service Order, Work Order, Tax Invoice, Rate Contract, Material Indent, or Service Indent) across SAP, Tally, GeM, Oracle ERP, Zoho, or customized contractor/vendor layouts. Extract precise commercial details, vendor metadata, line items (BOQ), requisition details, taxes, and crucially determine or calculate the TRUE FINAL ORDER VALUE.
 
 CRITICAL INSTRUCTIONS BY DOCUMENT TYPE:
 1. FOR INDENTS ("MATERIAL_INDENT" or "SERVICE_INDENT"):
@@ -218,13 +218,26 @@ CRITICAL INSTRUCTIONS BY DOCUMENT TYPE:
    - Extract ALL line items (BOQ): itemCode, description (exact specification/scope), quantity, uom/unit (NOS, MTR, SET, LOT, KG, EA, RMT, etc.), and technical specification or make preference ("specRemarks").
    - For indents, totalOrderValue, unitPrice, basicValue, and taxes MUST be 0.00.
 
-2. FOR COMMERCIAL ORDERS ("PO" or "SO"):
+2. FOR COMMERCIAL ORDERS ("PO" or "SO" - ALL FORMATS):
    - "PO" (Purchase Order): Commercial document for physical goods/materials.
    - "SO" (Service Order / Work Order): Commercial document for engineering services, erection, testing, or contracting.
-   - TOTAL ORDER VALUE (PRIMARY RULE): You MUST look specifically for the words "Total Order Value", "Total Order Vlaue", "TOTAL ORDER VALUE", "Total Order Val", "Total Order Amount", or "Grand Total". Take the EXACT numerical monetary value written directly next to or below "Total Order Value" and return it in "totalOrderValue" (e.g. 81441.24).
-   - Extract supplier/contractor company name ("vendorName"), street address ("vendorAddress"), 15-digit GSTIN ("vendorGstin"), PIN code ("vendorPinCode"), contact person, phone, email, and payment terms ("paymentTerms").
-   - Extract client / buyer details ("billToDetails" and "shipToDetails").
-   - Extract every line item with sno, itemCode, description, quantity, uom, unitPrice (Rate), basicValue, gstRate (e.g., 18), and line total amount.
+   - FINAL ORDER VALUE DETERMINATION & CALCULATION (CRITICAL RULE):
+     - Identify the TRUE FINAL PAYABLE / LEGALLY BINDING VALUE regardless of the layout terminology. Look for labels such as:
+       * "Total Order Value" / "Total Order Vlaue" / "TOTAL ORDER VALUE"
+       * "Grand Total" / "Grand Total (INR)" / "TOTAL (INR)" / "Total (Rs.)"
+       * "Total PO Value" / "Total SO Value" / "Total Work Order Value" / "Total Contract Price"
+       * "Net Amount Payable" / "Net Payable" / "Net Invoice Value" / "Total Amount"
+       * "Total Value (Inclusive of Taxes)" / "Gross Amount" / "Gross Total"
+       * "Total Amount (In Words)" / "Amount Chargeable (in words)"
+     - IF EXPLICIT: Extract the exact numerical monetary value written next to or below these labels into "totalOrderValue" (e.g., 81441.24).
+     - IF TABULAR / UNCALCULATED: If the document provides individual line items (quantities, unit rates/prices, GST/taxes, freight) but lacks a single grand total box, you MUST CALCULATE the exact final value:
+       * Line basic value = quantity * unitPrice
+       * Subtotal before tax ("totalAmountBeforeTax") = sum of all line basic values
+       * Taxes ("cgst", "sgst", or "igst") = applicable GST percentages (e.g. 18% = 9% CGST + 9% SGST)
+       * Final Total ("totalOrderValue") = Subtotal before tax + Freight/Charges + Total Taxes
+     - Extract supplier/contractor company name ("vendorName"), street address ("vendorAddress"), 15-digit GSTIN ("vendorGstin"), PIN code ("vendorPinCode"), contact person, phone, email, and payment terms ("paymentTerms").
+     - Extract client / buyer details ("billToDetails" and "shipToDetails").
+     - Extract every line item with sno, itemCode, description, quantity, uom, unitPrice (Rate), basicValue, gstRate (e.g., 18), and line total amount.
 
 3. Return the result strictly in JSON matching the defined schema.`;
 
@@ -260,7 +273,7 @@ Document Classification: ${docType}
       if (isIndent) {
         userTextPrompt += `\nCRITICAL INSTRUCTION FOR INDENT: Extract complete line items (BOQ), indent requisition number, date, indentor, department, purpose, and specifications. Commercial rates should be 0.`;
       } else {
-        userTextPrompt += `\nCRITICAL INSTRUCTION FOR PO/SO: Look for the phrase "Total Order Value" (or "Total Order Vlaue"). Take the exact number written next to or below this label as totalOrderValue. If multiple figures exist, select the true final total order value / maximum payable amount.`;
+        userTextPrompt += `\nCRITICAL INSTRUCTION FOR PO/SO: Audit this document (regardless of whether it is SAP, Tally, GeM, EPC PO, or contractor sheet). Extract or calculate the true FINAL ORDER VALUE / GRAND TOTAL (including all items, basic amounts, and taxes). Set "totalOrderValue" to this final value. If only line items and tax rates exist, calculate the exact sum of (Quantity * Rate * (1 + GST%)) + freight.`;
       }
 
       contentsParts.push({

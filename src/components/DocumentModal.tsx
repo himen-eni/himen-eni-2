@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   FileText,
@@ -17,7 +17,9 @@ import {
   UserCheck,
   Building2,
   Calendar,
-  AlertTriangle
+  AlertTriangle,
+  ExternalLink,
+  ZoomIn
 } from 'lucide-react';
 import { StructureProject, DocumentSection, DocumentItem, DocumentType } from '../types';
 import { formatRupees } from '../utils/aiRateScanner';
@@ -29,6 +31,7 @@ interface DocumentModalProps {
   onClose: () => void;
   project: StructureProject | null;
   section: DocumentSection | null;
+  initialDocId?: string | null;
   onDeleteDocument: (projectId: string, docType: DocumentType, docId: string) => void;
   onOpenUpload: (project: StructureProject, docType: DocumentType) => void;
 }
@@ -38,21 +41,36 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
   onClose,
   project,
   section,
+  initialDocId,
   onDeleteDocument,
   onOpenUpload
 }) => {
-  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(initialDocId || null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'digitized' | 'original'>('digitized');
   const [activeFileDataUrl, setActiveFileDataUrl] = useState<string | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
-  if (!isOpen || !project || !section) return null;
+  // Sync selectedDocId when modal opens or initialDocId / section changes
+  useEffect(() => {
+    if (isOpen) {
+      if (initialDocId) {
+        setSelectedDocId(initialDocId);
+      } else if (section && section.documents && section.documents.length > 0) {
+        setSelectedDocId(section.documents[0].id);
+      } else {
+        setSelectedDocId(null);
+      }
+      setViewMode('digitized');
+    }
+  }, [isOpen, initialDocId, section]);
 
-  const documents = section.documents || [];
+  const documents = section?.documents || [];
   const activeDoc =
     documents.find((d) => d.id === selectedDocId) || documents[0] || null;
 
-  React.useEffect(() => {
+  // Retrieve binary data from IndexedDB if not stored in memory
+  useEffect(() => {
     let isMounted = true;
     if (activeDoc?.fileDataUrl) {
       setActiveFileDataUrl(activeDoc.fileDataUrl);
@@ -70,6 +88,44 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
     };
   }, [activeDoc?.id, activeDoc?.fileDataUrl]);
 
+  // Convert base64 data URL to Blob URL for cross-browser iframe / object support
+  useEffect(() => {
+    const rawUrl = activeFileDataUrl || activeDoc?.fileDataUrl;
+    if (!rawUrl) {
+      setBlobUrl(null);
+      return;
+    }
+    if (rawUrl.startsWith('blob:')) {
+      setBlobUrl(rawUrl);
+      return;
+    }
+    if (rawUrl.startsWith('data:')) {
+      try {
+        const parts = rawUrl.split(',');
+        const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/pdf';
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        const createdBlobUrl = URL.createObjectURL(blob);
+        setBlobUrl(createdBlobUrl);
+        return () => {
+          URL.revokeObjectURL(createdBlobUrl);
+        };
+      } catch (err) {
+        console.warn('Error converting dataUrl to blobUrl:', err);
+        setBlobUrl(rawUrl);
+      }
+    } else {
+      setBlobUrl(rawUrl);
+    }
+  }, [activeFileDataUrl, activeDoc?.fileDataUrl]);
+
+  if (!isOpen || !project || !section) return null;
+
   const isFinancial = section.type === 'PO' || section.type === 'SO';
   const isIndent = section.type === 'MATERIAL_INDENT' || section.type === 'SERVICE_INDENT';
 
@@ -77,7 +133,8 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
     onDeleteDocument(project.id, section.type, docId);
     setConfirmDeleteId(null);
     if (selectedDocId === docId) {
-      setSelectedDocId(null);
+      const remaining = documents.filter((d) => d.id !== docId);
+      setSelectedDocId(remaining[0]?.id || null);
     }
   };
 
@@ -103,6 +160,27 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
     }
     return 'bg-[#38bdf8]/15 text-[#38bdf8] border-[#38bdf8]/30';
   };
+
+  const isPdf =
+    activeDoc &&
+    (activeDoc.name.toLowerCase().endsWith('.pdf') ||
+      activeDoc.fileType === 'pdf' ||
+      activeFileDataUrl?.startsWith('data:application/pdf') ||
+      activeDoc.fileDataUrl?.startsWith('data:application/pdf'));
+
+  const isImage =
+    activeDoc &&
+    (['png', 'jpg', 'jpeg', 'webp'].includes(activeDoc.fileType.toLowerCase()) ||
+      activeFileDataUrl?.startsWith('data:image/') ||
+      activeDoc.fileDataUrl?.startsWith('data:image/'));
+
+  const isSpreadsheet =
+    activeDoc &&
+    (['xlsx', 'xls', 'csv'].includes(activeDoc.fileType.toLowerCase()) ||
+      activeDoc.name.toLowerCase().endsWith('.xlsx') ||
+      activeDoc.name.toLowerCase().endsWith('.csv'));
+
+  const hasOriginalFileAttachment = !!(activeFileDataUrl || activeDoc?.fileDataUrl);
 
   return (
     <div
@@ -424,40 +502,165 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
                       )}
                     </div>
 
-                    {(activeFileDataUrl || activeDoc.fileDataUrl) ? (
-                      (activeFileDataUrl || activeDoc.fileDataUrl)?.startsWith('data:application/pdf') || activeDoc.name.toLowerCase().endsWith('.pdf') ? (
-                        <div className="w-full h-[640px] rounded-xl overflow-hidden border border-[#1e293b] bg-[#0f172a]">
-                          <iframe
-                            src={activeFileDataUrl || activeDoc.fileDataUrl}
-                            className="w-full h-full"
-                            title="Original PDF Document"
-                          />
+                    {hasOriginalFileAttachment ? (
+                      isPdf ? (
+                        <div className="w-full h-[640px] rounded-xl overflow-hidden border border-[#1e293b] bg-[#0f172a] flex flex-col">
+                          <div className="p-2.5 bg-[#131d33] border-b border-[#1e293b] flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-[12px] text-[#cbd5e1] font-semibold">
+                              <FileText className="w-4 h-4 text-[#38bdf8]" />
+                              <span>{activeDoc.originalFileName || activeDoc.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {blobUrl && (
+                                <a
+                                  href={blobUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1 rounded-lg bg-[#1e293b] hover:bg-[#334155] border border-[#334155] text-[11px] font-bold text-[#38bdf8] flex items-center gap-1.5 transition-colors"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                  <span>Open in New Tab</span>
+                                </a>
+                              )}
+                              <button
+                                onClick={() => handleDownloadOriginal(activeDoc)}
+                                className="px-3 py-1 rounded-lg bg-[#38bdf8] hover:bg-[#7dd3fc] text-[#082f49] text-[11px] font-bold flex items-center gap-1.5 transition-colors"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Save PDF</span>
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex-1 w-full relative bg-[#1e293b]/50">
+                            <object
+                              data={blobUrl || activeFileDataUrl || activeDoc.fileDataUrl}
+                              type="application/pdf"
+                              className="w-full h-full"
+                            >
+                              <iframe
+                                src={blobUrl || activeFileDataUrl || activeDoc.fileDataUrl}
+                                className="w-full h-full border-0"
+                                title="Original PDF Document"
+                              />
+                            </object>
+                          </div>
                         </div>
-                      ) : (activeFileDataUrl || activeDoc.fileDataUrl)?.startsWith('data:image/') || ['png', 'jpg', 'jpeg', 'webp'].includes(activeDoc.fileType.toLowerCase()) ? (
-                        <div className="w-full max-h-[640px] overflow-auto rounded-xl border border-[#1e293b] bg-[#0f172a] p-4 flex items-center justify-center">
+                      ) : isImage ? (
+                        <div className="w-full max-h-[640px] overflow-auto rounded-xl border border-[#1e293b] bg-[#0f172a] p-4 flex flex-col items-center justify-center gap-3">
                           <img
-                            src={activeFileDataUrl || activeDoc.fileDataUrl}
+                            src={blobUrl || activeFileDataUrl || activeDoc.fileDataUrl}
                             alt="Original Document Scan"
-                            className="max-w-full max-h-[600px] object-contain rounded shadow-lg"
+                            className="max-w-full max-h-[560px] object-contain rounded-lg shadow-xl border border-[#334155]"
                           />
+                          <div className="flex items-center gap-2">
+                            {blobUrl && (
+                              <a
+                                href={blobUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#334155] border border-[#334155] text-[11px] font-bold text-[#38bdf8] flex items-center gap-1.5"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                                <span>View Full Resolution</span>
+                              </a>
+                            )}
+                            <button
+                              onClick={() => handleDownloadOriginal(activeDoc)}
+                              className="px-3 py-1.5 rounded-lg bg-[#38bdf8] text-[#082f49] text-[11px] font-bold flex items-center gap-1.5 hover:bg-[#7dd3fc]"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download Image</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : isSpreadsheet ? (
+                        <div className="w-full rounded-xl border border-[#1e293b] bg-[#0f172a] p-4 flex flex-col gap-4">
+                          <div className="flex items-center justify-between pb-3 border-b border-[#1e293b]">
+                            <div className="flex items-center gap-2">
+                              <FileSpreadsheet className="w-5 h-5 text-[#4ade80]" />
+                              <div>
+                                <h4 className="text-[13px] font-bold text-white">
+                                  Embedded Spreadsheet Preview: {activeDoc.originalFileName || activeDoc.name}
+                                </h4>
+                                <p className="text-[10px] text-[#94a3b8]">
+                                  {activeDoc.itemsList?.length || 0} line items extracted from this table
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleDownloadOriginal(activeDoc)}
+                              className="px-3 py-1.5 rounded-lg bg-[#4ade80] text-[#052e16] text-[11px] font-bold flex items-center gap-1.5 hover:bg-[#22c55e]"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download Spreadsheet ({activeDoc.fileType.toUpperCase()})</span>
+                            </button>
+                          </div>
+
+                          {/* Line items table preview */}
+                          {activeDoc.itemsList && activeDoc.itemsList.length > 0 ? (
+                            <div className="overflow-x-auto rounded-lg border border-[#1e293b]">
+                              <table className="w-full text-[11px] text-left">
+                                <thead className="bg-[#131d33] text-[#94a3b8] font-bold uppercase text-[9px] tracking-wider border-b border-[#1e293b]">
+                                  <tr>
+                                    <th className="p-2 w-10 text-center">#</th>
+                                    <th className="p-2">Item Code</th>
+                                    <th className="p-2">Description / Scope</th>
+                                    <th className="p-2 text-right">Qty</th>
+                                    <th className="p-2">UOM</th>
+                                    {isFinancial && <th className="p-2 text-right">Unit Rate (₹)</th>}
+                                    {isFinancial && <th className="p-2 text-right">Basic (₹)</th>}
+                                    {isFinancial && <th className="p-2 text-right">GST %</th>}
+                                    {isFinancial && <th className="p-2 text-right">Total (₹)</th>}
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-[#1e293b] font-mono">
+                                  {activeDoc.itemsList.map((item, idx) => (
+                                    <tr key={idx} className="hover:bg-[#131d33]/50">
+                                      <td className="p-2 text-center text-[#64748b]">{item.sno || idx + 1}</td>
+                                      <td className="p-2 text-[#38bdf8] font-semibold">{item.itemCode || '-'}</td>
+                                      <td className="p-2 font-sans text-white">{item.description}</td>
+                                      <td className="p-2 text-right text-[#4ade80] font-bold">{item.quantity}</td>
+                                      <td className="p-2 text-[#94a3b8]">{item.uom || item.unit}</td>
+                                      {isFinancial && (
+                                        <td className="p-2 text-right text-[#cbd5e1]">
+                                          {(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        </td>
+                                      )}
+                                      {isFinancial && (
+                                        <td className="p-2 text-right text-white">
+                                          {(item.basicValue || (item.quantity * (item.unitPrice || 0))).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        </td>
+                                      )}
+                                      {isFinancial && <td className="p-2 text-right text-[#94a3b8]">{item.gstRate || 18}%</td>}
+                                      {isFinancial && (
+                                        <td className="p-2 text-right text-[#4ade80] font-bold">
+                                          {(item.total || ((item.basicValue || 0) * 1.18)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        </td>
+                                      )}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : null}
                         </div>
                       ) : (
                         <div className="p-8 text-center bg-[#0b1329] rounded-xl border border-[#1e293b] space-y-4">
-                          <FileSpreadsheet className="w-12 h-12 text-[#4ade80] mx-auto" />
+                          <FileArchive className="w-12 h-12 text-[#f59e0b] mx-auto" />
                           <div>
                             <h4 className="text-[15px] font-bold text-white">
                               {activeDoc.originalFileName || activeDoc.name}
                             </h4>
                             <p className="text-[12px] text-[#94a3b8] max-w-md mx-auto mt-1">
-                              This file is stored in full fidelity. Click below to download and open the original spreadsheet/file on your PC.
+                              This file is stored in full binary fidelity ({activeDoc.fileSize}). Click below to download and open it directly.
                             </p>
                           </div>
                           <button
                             onClick={() => handleDownloadOriginal(activeDoc)}
-                            className="px-5 py-2.5 rounded-xl bg-[#4ade80] text-[#052e16] font-bold text-[13px] hover:bg-[#22c55e] inline-flex items-center gap-2"
+                            className="px-5 py-2.5 rounded-xl bg-[#f59e0b] text-[#451a03] font-bold text-[13px] hover:bg-[#d97706] inline-flex items-center gap-2"
                           >
                             <Download className="w-4 h-4" />
-                            <span>Download Original {activeDoc.fileType.toUpperCase()}</span>
+                            <span>Download File ({activeDoc.fileType.toUpperCase()})</span>
                           </button>
                         </div>
                       )
@@ -469,19 +672,19 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
                             Digital System Record
                           </h4>
                           <p className="text-[12px] text-[#94a3b8] max-w-md mx-auto mt-1">
-                            This requisition is maintained in digital structured format. You can view the full AI Digitized Sheet or export as an Excel register.
+                            This document is maintained as a digital structured register. You can inspect the complete layout in the AI Digitized Sheet tab or export it to Excel.
                           </p>
                         </div>
                         <div className="flex justify-center gap-3">
                           <button
                             onClick={() => setViewMode('digitized')}
-                            className="px-4 py-2 rounded-xl bg-[#38bdf8] text-[#082f49] font-bold text-[12px]"
+                            className="px-4 py-2 rounded-xl bg-[#38bdf8] text-[#082f49] font-bold text-[12px] hover:bg-[#7dd3fc] transition-colors"
                           >
-                            View AI Digitized Sheet
+                            Switch to AI Digitized Sheet
                           </button>
                           <button
                             onClick={() => handleDownloadExcel(activeDoc)}
-                            className="px-4 py-2 rounded-xl bg-[#22c55e]/20 border border-[#22c55e]/40 text-[#4ade80] font-bold text-[12px]"
+                            className="px-4 py-2 rounded-xl bg-[#22c55e]/20 border border-[#22c55e]/40 text-[#4ade80] font-bold text-[12px] hover:bg-[#22c55e]/30 transition-colors"
                           >
                             Download Excel Register
                           </button>

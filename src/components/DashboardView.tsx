@@ -30,7 +30,7 @@ import {
 
 interface DashboardViewProps {
   projects: StructureProject[];
-  onOpenDocumentModal: (project: StructureProject, section: DocumentSection) => void;
+  onOpenDocumentModal: (project: StructureProject, section: DocumentSection, specificDocId?: string) => void;
   onDeleteDocument: (projectId: string, docType: DocumentType, docId: string) => void;
 }
 
@@ -392,10 +392,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 {project.materialIndentStatus.documents.map((doc) => (
                                   <div
                                     key={doc.id}
-                                    className="p-2 rounded-lg bg-[#0f172a] border border-[#334155] flex items-center justify-between gap-2 text-[11px]"
+                                    onClick={() => onOpenDocumentModal(project, project.materialIndentStatus, doc.id)}
+                                    className="p-2 rounded-lg bg-[#0f172a] hover:bg-[#131d33] border border-[#334155] hover:border-[#38bdf8]/40 flex items-center justify-between gap-2 text-[11px] cursor-pointer transition-colors group"
                                   >
                                     <div className="min-w-0 flex-1">
-                                      <p className="font-semibold text-[#f8fafc] truncate" title={doc.name}>
+                                      <p className="font-semibold text-[#f8fafc] group-hover:text-[#38bdf8] truncate transition-colors" title={doc.name}>
                                         {doc.name}
                                       </p>
                                       <span className="text-[9px] text-[#64748b] font-mono">
@@ -404,7 +405,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
                                       <button
-                                        onClick={() => downloadDocumentFile(doc, project)}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onOpenDocumentModal(project, project.materialIndentStatus, doc.id);
+                                        }}
+                                        className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#38bdf8] transition-colors"
+                                        title="View this document"
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          downloadDocumentFile(doc, project);
+                                        }}
                                         className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#4ade80] transition-colors"
                                         title="Download this file (.xlsx)"
                                       >
@@ -481,10 +495,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 {project.poStatus.documents.map((doc) => (
                                   <div
                                     key={doc.id}
-                                    className="p-2 rounded-lg bg-[#0f172a] border border-[#22c55e]/30 flex items-center justify-between gap-2 text-[11px]"
+                                    onClick={() => onOpenDocumentModal(project, project.poStatus, doc.id)}
+                                    className="p-2 rounded-lg bg-[#0f172a] hover:bg-[#131d33] border border-[#22c55e]/30 hover:border-[#22c55e]/70 flex items-center justify-between gap-2 text-[11px] cursor-pointer transition-colors group"
                                   >
                                     <div className="min-w-0 flex-1">
-                                      <p className="font-semibold text-[#f8fafc] truncate" title={doc.name}>
+                                      <p className="font-semibold text-[#f8fafc] group-hover:text-[#4ade80] truncate transition-colors" title={doc.name}>
                                         {doc.name}
                                       </p>
                                       <div className="flex items-center justify-between text-[9px] text-[#94a3b8] mt-0.5">
@@ -498,7 +513,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
                                       <button
-                                        onClick={() => downloadDocumentFile(doc, project)}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onOpenDocumentModal(project, project.poStatus, doc.id);
+                                        }}
+                                        className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#4ade80] transition-colors"
+                                        title="View PO document & digitized sheet"
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          downloadDocumentFile(doc, project);
+                                        }}
                                         className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#4ade80] transition-colors"
                                         title="Download PO file (.xlsx)"
                                       >
@@ -590,10 +618,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 {project.serviceIndentStatus.documents.map((doc) => (
                                   <div
                                     key={doc.id}
-                                    className="p-2 rounded-lg bg-[#0f172a] border border-[#334155] flex items-center justify-between gap-2 text-[11px]"
+                                    onClick={() => onOpenDocumentModal(project, project.serviceIndentStatus, doc.id)}
+                                    className="p-2 rounded-lg bg-[#0f172a] hover:bg-[#131d33] border border-[#334155] hover:border-[#38bdf8]/40 flex items-center justify-between gap-2 text-[11px] cursor-pointer transition-colors group"
                                   >
                                     <div className="min-w-0 flex-1">
-                                      <p className="font-semibold text-[#f8fafc] truncate" title={doc.name}>
+                                      <p className="font-semibold text-[#f8fafc] group-hover:text-[#38bdf8] truncate transition-colors" title={doc.name}>
                                         {doc.name}
                                       </p>
                                       <span className="text-[9px] text-[#64748b] font-mono">
@@ -602,7 +631,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
                                       <button
-                                        onClick={() => downloadDocumentFile(doc, project)}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onOpenDocumentModal(project, project.serviceIndentStatus, doc.id);
+                                        }}
+                                        className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#38bdf8] transition-colors"
+                                        title="View Service Indent document"
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          downloadDocumentFile(doc, project);
+                                        }}
                                         className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#38bdf8] transition-colors"
                                         title="Download this file (.xlsx)"
                                       >
@@ -679,10 +721,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 {project.soStatus.documents.map((doc) => (
                                   <div
                                     key={doc.id}
-                                    className="p-2 rounded-lg bg-[#0f172a] border border-[#38bdf8]/30 flex items-center justify-between gap-2 text-[11px]"
+                                    onClick={() => onOpenDocumentModal(project, project.soStatus, doc.id)}
+                                    className="p-2 rounded-lg bg-[#0f172a] hover:bg-[#131d33] border border-[#38bdf8]/30 hover:border-[#38bdf8]/70 flex items-center justify-between gap-2 text-[11px] cursor-pointer transition-colors group"
                                   >
                                     <div className="min-w-0 flex-1">
-                                      <p className="font-semibold text-[#f8fafc] truncate" title={doc.name}>
+                                      <p className="font-semibold text-[#f8fafc] group-hover:text-[#38bdf8] truncate transition-colors" title={doc.name}>
                                         {doc.name}
                                       </p>
                                       <div className="flex items-center justify-between text-[9px] text-[#94a3b8] mt-0.5">
@@ -696,7 +739,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
                                       <button
-                                        onClick={() => downloadDocumentFile(doc, project)}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onOpenDocumentModal(project, project.soStatus, doc.id);
+                                        }}
+                                        className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#38bdf8] transition-colors"
+                                        title="View SO document & digitized sheet"
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          downloadDocumentFile(doc, project)}
+                                        }
                                         className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#38bdf8] transition-colors"
                                         title="Download SO file (.xlsx)"
                                       >
