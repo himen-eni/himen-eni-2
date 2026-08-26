@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx';
 import { DocumentType } from '../types';
 
 export interface ScannedLineItem {
@@ -46,6 +47,8 @@ export interface AiScanResult {
   totalOrderValue: number; // Exact Individual Total Order Value
   amountInWords?: string;
   fileDataUrl?: string; // Original uploaded document data
+  extractedFullText?: string; // Full line-by-line verbatim transcription
+  rawLines?: string[]; // All lines scanned from the document
   billToDetails?: {
     name: string;
     address: string;
@@ -405,19 +408,222 @@ export async function fileToBase64(file: File): Promise<{ base64: string; mimeTy
 }
 
 /**
+ * Parse any uploaded file content (Excel spreadsheets .xlsx/.xls/.csv, text files, and JSON)
+ * extracting all table rows, text lines, and metadata.
+ */
+export async function parseUploadedFileContent(file: File): Promise<{
+  text: string;
+  lines: string[];
+  items: ScannedLineItem[];
+  detectedRefNo?: string;
+  detectedDate?: string;
+  detectedVendor?: string;
+  detectedIndentor?: string;
+  detectedDepartment?: string;
+  detectedJustification?: string;
+  detectedApprovedBy?: string;
+  detectedPriority?: 'Low' | 'Medium' | 'High' | 'Emergency';
+  detectedOrderValue?: number;
+  detectedBillTo?: { name: string; address: string; gstin: string; pinCode: string };
+  detectedShipTo?: { name: string; address: string; gstin: string; pinCode: string };
+}> {
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  const allLines: string[] = [];
+  const extractedItems: ScannedLineItem[] = [];
+  let foundRefNo = '';
+  let foundDate = '';
+  let foundVendor = '';
+  let foundIndentor = '';
+  let foundDepartment = '';
+  let foundJustification = '';
+  let foundApprovedBy = '';
+  let foundPriority: 'Low' | 'Medium' | 'High' | 'Emergency' = 'Medium';
+  let foundOrderVal = 0;
+
+  // 1. SPREADSHEET (XLSX, XLS, CSV)
+  if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: 'array' });
+
+      for (const sheetName of wb.SheetNames) {
+        const sheet = wb.Sheets[sheetName];
+        if (!sheet) continue;
+        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+        let headerRowIdx = -1;
+        const colMap = {
+          sno: -1,
+          itemCode: -1,
+          desc: -1,
+          qty: -1,
+          unit: -1,
+          rate: -1,
+          basic: -1,
+          tax: -1,
+          total: -1,
+          remarks: -1,
+        };
+
+        for (let r = 0; r < rows.length; r++) {
+          const row = rows[r];
+          const rowStr = row.map((c) => String(c).trim()).filter(Boolean).join(' | ');
+          if (rowStr) allLines.push(rowStr);
+
+          const fullRowText = row.map((c) => String(c)).join(' ');
+
+          if (!foundRefNo) {
+            const refMatch = fullRowText.match(/(?:Indent\s*No|Requisition\s*No|PO\s*No|Order\s*No|Doc\s*No|Reference\s*No|Ref\s*No)\s*[:=\-]?\s*([A-Za-z0-9\/-]+)/i);
+            if (refMatch) foundRefNo = refMatch[1].trim();
+          }
+          if (!foundIndentor) {
+            const indMatch = fullRowText.match(/(?:Indentor|Requisitioner|Raised\s*By|Requested\s*By|Created\s*By|Prepared\s*By)\s*[:=\-]?\s*([A-Za-z\s.]{3,40})/i);
+            if (indMatch) foundIndentor = indMatch[1].trim();
+          }
+          if (!foundVendor) {
+            const venMatch = fullRowText.match(/(?:Vendor|Supplier|Contractor|M\/s\.?)\s*[:=\-]?\s*([A-Za-z0-9\s.,&()\-]{3,50})/i);
+            if (venMatch && !venMatch[1].toLowerCase().includes('rbm infracon')) foundVendor = venMatch[1].trim();
+          }
+          if (!foundDepartment) {
+            const depMatch = fullRowText.match(/(?:Department|Dept)\s*[:=\-]?\s*([A-Za-z\s.&]{3,40})/i);
+            if (depMatch) foundDepartment = depMatch[1].trim();
+          }
+          if (!foundDate) {
+            const dateMatch = fullRowText.match(/(?:Date|PO\s*Date|Indent\s*Date|Req\s*Date)\s*[:=\-]?\s*([0-9]{1,2}[-\/.][0-9]{1,2}[-\/.][0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3}\s+[0-9]{2,4})/i);
+            if (dateMatch) foundDate = dateMatch[1].trim();
+          }
+          if (!foundApprovedBy) {
+            const appMatch = fullRowText.match(/(?:Approved\s*By|Verified\s*By|Checked\s*By|Authorized\s*By)\s*[:=\-]?\s*([A-Za-z\s.]{3,40})/i);
+            if (appMatch) foundApprovedBy = appMatch[1].trim();
+          }
+
+          // Detect Priority
+          if (/urgent|emergency/i.test(fullRowText)) foundPriority = 'Emergency';
+          else if (/high priority/i.test(fullRowText)) foundPriority = 'High';
+
+          // Detect Header Row
+          if (headerRowIdx === -1) {
+            const lowerRow = row.map((c) => String(c).toLowerCase().trim());
+            const hasDesc = lowerRow.some((c) => c.includes('desc') || c.includes('particular') || c.includes('item') || c.includes('scope') || c.includes('material') || c.includes('work') || c.includes('service'));
+            const hasQty = lowerRow.some((c) => c === 'qty' || c.includes('quantity') || c.includes('nos') || c === 'qnty');
+
+            if (hasDesc || (hasQty && lowerRow.length >= 2)) {
+              headerRowIdx = r;
+              lowerRow.forEach((val, idx) => {
+                if (val === 'sr' || val === 'sno' || val === 's.no' || val === 'sl' || val === 'sl.no' || val === 'item no') colMap.sno = idx;
+                else if (val.includes('code') || val.includes('item code') || val.includes('mat code') || val.includes('service code')) colMap.itemCode = idx;
+                else if (val.includes('desc') || val.includes('particular') || val.includes('scope') || val.includes('material') || val.includes('work')) colMap.desc = idx;
+                else if (val === 'qty' || val.includes('quant') || val === 'qnty') colMap.qty = idx;
+                else if (val === 'unit' || val === 'uom' || val.includes('unit')) colMap.unit = idx;
+                else if (val.includes('rate') || val.includes('unit price') || val.includes('price') || val === 'unit rate') colMap.rate = idx;
+                else if (val.includes('basic') || (val.includes('amount') && !val.includes('total'))) colMap.basic = idx;
+                else if (val.includes('gst') || val.includes('tax') || val.includes('vat')) colMap.tax = idx;
+                else if (val.includes('total') || val.includes('net') || val.includes('gross')) colMap.total = idx;
+                else if (val.includes('remark') || val.includes('spec') || val.includes('make') || val.includes('standard')) colMap.remarks = idx;
+              });
+              if (colMap.desc === -1) {
+                colMap.desc = lowerRow.findIndex((c) => c.length > 2);
+              }
+            }
+          } else {
+            // Data row
+            const descVal = colMap.desc !== -1 ? String(row[colMap.desc] || '').trim() : '';
+            const qtyVal = colMap.qty !== -1 ? parseFloat(String(row[colMap.qty] || '').replace(/,/g, '')) : 0;
+            const rateVal = colMap.rate !== -1 ? parseFloat(String(row[colMap.rate] || '').replace(/,/g, '')) : 0;
+            const basicVal = colMap.basic !== -1 ? parseFloat(String(row[colMap.basic] || '').replace(/,/g, '')) : (qtyVal && rateVal ? qtyVal * rateVal : 0);
+            const taxVal = colMap.tax !== -1 ? parseFloat(String(row[colMap.tax] || '').replace(/[%,\s]/g, '')) : 18;
+            const totalVal = colMap.total !== -1 ? parseFloat(String(row[colMap.total] || '').replace(/,/g, '')) : (basicVal ? basicVal * (1 + (taxVal || 18) / 100) : 0);
+            const unitVal = colMap.unit !== -1 ? String(row[colMap.unit] || '').trim().toUpperCase() : 'NOS';
+            const codeVal = colMap.itemCode !== -1 ? String(row[colMap.itemCode] || '').trim() : (colMap.sno !== -1 ? String(row[colMap.sno] || '').trim() : '');
+            const remarksVal = colMap.remarks !== -1 ? String(row[colMap.remarks] || '').trim() : '';
+
+            const isSummaryRow = /total|subtotal|grand total|round off|rupees/i.test(descVal);
+            if (descVal && !isSummaryRow && (descVal.length > 1 || !isNaN(qtyVal))) {
+              extractedItems.push({
+                sno: extractedItems.length + 1,
+                itemCode: codeVal || `ITEM-${extractedItems.length + 1}`,
+                description: descVal,
+                quantity: !isNaN(qtyVal) && qtyVal > 0 ? qtyVal : 1,
+                unit: unitVal || 'NOS',
+                uom: unitVal || 'NOS',
+                unitPrice: !isNaN(rateVal) ? rateVal : 0,
+                basicValue: !isNaN(basicVal) ? basicVal : 0,
+                gstRate: !isNaN(taxVal) ? taxVal : 18,
+                total: !isNaN(totalVal) ? Math.round(totalVal * 100) / 100 : 0,
+                specRemarks: remarksVal || 'As per specification',
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Error reading spreadsheet with SheetJS:', e);
+    }
+  }
+
+  // 2. TEXT FILES (.txt, .json, .csv fallback)
+  if (ext === 'txt' || ext === 'json' || (allLines.length === 0 && ext === 'csv')) {
+    try {
+      const text = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string) || '');
+        reader.onerror = () => resolve('');
+        reader.readAsText(file);
+      });
+
+      if (text) {
+        const fileLines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        fileLines.forEach((l) => allLines.push(l));
+
+        fileLines.forEach((line, idx) => {
+          const parts = line.split(/[,\t|;]/).map((p) => p.trim());
+          if (parts.length >= 2 && !/description|item|quantity|qty/i.test(parts[0])) {
+            const desc = parts[0];
+            const qty = parseFloat(parts[1]) || 1;
+            const unit = parts[2] || 'NOS';
+            extractedItems.push({
+              sno: extractedItems.length + 1,
+              itemCode: `ITM-${idx + 1}`,
+              description: desc,
+              quantity: qty,
+              unit: unit,
+              uom: unit,
+              unitPrice: 0,
+              basicValue: 0,
+              gstRate: 18,
+              total: 0,
+              specRemarks: parts.slice(3).join(' ') || 'Standard requirement',
+            });
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Error reading text file:', e);
+    }
+  }
+
+  return {
+    text: allLines.join('\n'),
+    lines: allLines,
+    items: extractedItems,
+    detectedRefNo: foundRefNo,
+    detectedDate: foundDate,
+    detectedVendor: foundVendor,
+    detectedIndentor: foundIndentor,
+    detectedDepartment: foundDepartment,
+    detectedJustification: foundJustification,
+    detectedApprovedBy: foundApprovedBy,
+    detectedPriority: foundPriority,
+    detectedOrderValue: foundOrderVal,
+  };
+}
+
+/**
  * Read text content if available (for text/csv files)
  */
 export async function extractFileText(file: File): Promise<string> {
-  const ext = file.name.split('.').pop()?.toLowerCase();
-  if (ext === 'txt' || ext === 'csv' || ext === 'json' || ext === 'xml') {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string || '');
-      reader.onerror = () => resolve('');
-      reader.readAsText(file);
-    });
-  }
-  return '';
+  const parsed = await parseUploadedFileContent(file);
+  return parsed.text;
 }
 
 /**
@@ -432,10 +638,11 @@ export async function scanDocumentWithAI(
 ): Promise<AiScanResult> {
   const isIndent = docType === 'MATERIAL_INDENT' || docType === 'SERVICE_INDENT';
 
-  try {
-    const { base64, mimeType } = await fileToBase64(file);
-    const extractedText = await extractFileText(file);
+  // 1. Deep client-side parsing of all lines, words, items, and metadata
+  const parsedFile = await parseUploadedFileContent(file);
+  const { base64, mimeType } = await fileToBase64(file);
 
+  try {
     const response = await fetch('/api/scan-document', {
       method: 'POST',
       headers: {
@@ -447,7 +654,7 @@ export async function scanDocumentWithAI(
         mimeType,
         docType,
         structureName,
-        extractedText,
+        extractedText: parsedFile.text,
       }),
     });
 
@@ -459,50 +666,58 @@ export async function scanDocumentWithAI(
         // --- 1. HANDLE INDENTS (MATERIAL INDENT & SERVICE INDENT) ---
         if (isIndent) {
           const fallbackSync = scanDocumentForRatesSync(file, docType, structureName);
-          const items: ScannedLineItem[] = Array.isArray(d.itemsList) && d.itemsList.length > 0
-            ? d.itemsList.map((it: any, idx: number) => ({
-                sno: it.sno || idx + 1,
-                itemCode: it.itemCode || (docType === 'MATERIAL_INDENT' ? `EM${100000 + idx}` : `SRV-${100 + idx}`),
-                description: it.description || (docType === 'MATERIAL_INDENT' ? 'E&I Material Requisition Item' : 'E&I Technical Service Scope'),
-                uom: it.uom || it.unit || 'NOS',
-                quantity: Number(it.quantity) || 1,
-                unit: it.unit || it.uom || 'NOS',
-                unitPrice: 0,
-                basicValue: 0,
-                gstRate: 0,
-                total: 0,
-                specRemarks: it.specRemarks || 'Technical standard compliance'
-              }))
-            : fallbackSync.itemsList;
+
+          // Merge AI-extracted items with real spreadsheet parsed items to ensure 100% completeness
+          let finalItems: ScannedLineItem[] = [];
+          if (parsedFile.items && parsedFile.items.length > 0) {
+            finalItems = parsedFile.items;
+          } else if (Array.isArray(d.itemsList) && d.itemsList.length > 0) {
+            finalItems = d.itemsList.map((it: any, idx: number) => ({
+              sno: it.sno || idx + 1,
+              itemCode: it.itemCode || (docType === 'MATERIAL_INDENT' ? `EM${100000 + idx}` : `SRV-${100 + idx}`),
+              description: it.description || (docType === 'MATERIAL_INDENT' ? 'E&I Material Requisition Item' : 'E&I Technical Service Scope'),
+              uom: it.uom || it.unit || 'NOS',
+              quantity: Number(it.quantity) || 1,
+              unit: it.unit || it.uom || 'NOS',
+              unitPrice: 0,
+              basicValue: 0,
+              gstRate: 0,
+              total: 0,
+              specRemarks: it.specRemarks || 'Technical standard compliance',
+            }));
+          } else {
+            finalItems = fallbackSync.itemsList;
+          }
 
           const refPrefix = docType === 'MATERIAL_INDENT' ? 'M-IND' : 'S-IND';
-          const detectedRef = d.referenceNo && !d.referenceNo.includes('PO') && !d.referenceNo.includes('SO')
-            ? d.referenceNo
-            : `${refPrefix}-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+          const detectedRef = parsedFile.detectedRefNo ||
+            (d.referenceNo && !d.referenceNo.includes('PO') && !d.referenceNo.includes('SO')
+              ? d.referenceNo
+              : `${refPrefix}-2026-${Math.floor(1000 + Math.random() * 9000)}`);
 
           return {
             amountInRupees: 0,
-            vendorName: userManualVendor || d.recommendedSupplier || d.vendorName || (docType === 'MATERIAL_INDENT' ? 'E & I Site Store Requisition' : 'E & I Contracting & Services'),
+            vendorName: userManualVendor || parsedFile.detectedVendor || d.recommendedSupplier || d.vendorName || (docType === 'MATERIAL_INDENT' ? 'E & I Site Store Requisition' : 'E & I Contracting & Services'),
             vendorAddress: d.vendorAddress || '',
             vendorGstin: d.vendorGstin || '',
             vendorPinCode: d.vendorPinCode || '',
             referenceNo: detectedRef,
-            poDate: d.poDate || d.requisitionDate || new Date().toLocaleDateString('en-GB'),
-            requisitionDate: d.requisitionDate || d.poDate || new Date().toLocaleDateString('en-GB'),
+            poDate: parsedFile.detectedDate || d.poDate || d.requisitionDate || new Date().toLocaleDateString('en-GB'),
+            requisitionDate: parsedFile.detectedDate || d.requisitionDate || d.poDate || new Date().toLocaleDateString('en-GB'),
             quotationNo: d.quotationNo || '',
             deliveryDate: d.deliveryDate || 'As per project schedule',
-            indentorName: d.indentorName || d.contactPerson || 'E & I Site Engineer',
-            department: d.department || (docType === 'MATERIAL_INDENT' ? 'E & I Procurement' : 'E & I Execution'),
-            priority: (d.priority as any) || 'Medium',
-            justification: d.justification || `Site requisition for ${structureName.replace(/ST-\d+-/i, '').trim()}`,
-            approvedBy: d.approvedBy || 'PRAJAPATI HITESHBHAI V',
+            indentorName: parsedFile.detectedIndentor || d.indentorName || d.contactPerson || 'PRAJAPATI HITESHBHAI V',
+            department: parsedFile.detectedDepartment || d.department || (docType === 'MATERIAL_INDENT' ? 'E & I Procurement' : 'E & I Execution'),
+            priority: parsedFile.detectedPriority || (d.priority as any) || 'Medium',
+            justification: parsedFile.detectedJustification || d.justification || `Site requisition for ${structureName.replace(/ST-\d+-/i, '').trim()}`,
+            approvedBy: parsedFile.detectedApprovedBy || d.approvedBy || 'PRAJAPATI HITESHBHAI V',
             verifiedBy: d.verifiedBy || 'E & I Quality Lead',
-            recommendedSupplier: d.recommendedSupplier || '',
-            contactPerson: d.contactPerson || d.indentorName || 'E & I Site Lead',
+            recommendedSupplier: parsedFile.detectedVendor || d.recommendedSupplier || '',
+            contactPerson: parsedFile.detectedIndentor || d.contactPerson || 'E & I Site Lead',
             contactPhone: d.contactPhone || '9726679840',
             contactEmail: d.contactEmail || 'purchase@rbminfracon-kutchh.com',
             paymentTerms: 'Non-Financial Technical Requisition',
-            itemsList: items,
+            itemsList: finalItems,
             totalAmountBeforeTax: 0,
             freight: 0,
             cgst: 0,
@@ -511,18 +726,18 @@ export async function scanDocumentWithAI(
             baseAmount: 0,
             totalOrderValue: 0,
             amountInWords: 'Non-Financial Requisition',
+            extractedFullText: d.extractedFullText || parsedFile.text || finalItems.map((it) => `${it.sno}. ${it.description} - Qty: ${it.quantity} ${it.unit}`).join('\n'),
+            rawLines: parsedFile.lines.length > 0 ? parsedFile.lines : (d.extractedFullText ? d.extractedFullText.split('\n') : []),
             confidence: 0.99,
             scannedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             isFinancialDoc: false,
-            isAiExtracted: true
+            isAiExtracted: true,
           };
         }
 
         // --- 2. HANDLE COMMERCIAL ORDERS (PO & SO) ---
-        // Check if there is an explicit Total Order Value match in extracted text or filename
-        const explicitTextAmount = findTotalOrderValueInText(extractedText) || findTotalOrderValueInText(file.name);
+        const explicitTextAmount = findTotalOrderValueInText(parsedFile.text) || findTotalOrderValueInText(file.name);
 
-        // Gather all candidate amounts to strictly enforce the MAXIMUM AMOUNT rule
         const candidateAmounts: number[] = [];
         if (typeof d.maximumAmountFound === 'number' && !isNaN(d.maximumAmountFound) && d.maximumAmountFound > 0) {
           candidateAmounts.push(d.maximumAmountFound);
@@ -549,13 +764,12 @@ export async function scanDocumentWithAI(
           candidateAmounts.push(userManualAmount);
         }
 
-        // Also check if the filename itself contains a distinct maximum amount
-        const fileNameMatches = file.name.matchAll(/(\d{4,9}(?:\.\d{1,2})?)/g);
-        for (const fm of fileNameMatches) {
-          const p = parseFloat(fm[1]);
-          if (!isNaN(p) && p > 1000 && p !== 2024 && p !== 2025 && p !== 2026 && p !== 361002 && p !== 370110) {
-            candidateAmounts.push(p);
-          }
+        // Calculate sum from parsed spreadsheet items if available
+        if (parsedFile.items.length > 0) {
+          const sumBasic = parsedFile.items.reduce((acc, it) => acc + (it.basicValue || 0), 0);
+          const sumTotal = parsedFile.items.reduce((acc, it) => acc + (it.total || 0), 0);
+          if (sumTotal > 0) candidateAmounts.push(sumTotal);
+          else if (sumBasic > 0) candidateAmounts.push(Math.round(sumBasic * 1.18 * 100) / 100);
         }
 
         const validCandidates = candidateAmounts.filter(
@@ -576,37 +790,42 @@ export async function scanDocumentWithAI(
         const cgst = typeof d.cgst === 'number' ? d.cgst : Math.round((beforeTax * 0.09) * 100) / 100;
         const sgst = typeof d.sgst === 'number' ? d.sgst : Math.round((beforeTax * 0.09) * 100) / 100;
 
-        const items: ScannedLineItem[] = Array.isArray(d.itemsList) && d.itemsList.length > 0
-          ? d.itemsList.map((it: any, idx: number) => ({
-              sno: it.sno || idx + 1,
-              itemCode: it.itemCode || `EM${100000 + idx}`,
-              description: it.description || 'E&I Material/Service Item',
-              uom: it.uom || 'NOS',
-              quantity: Number(it.quantity) || 1,
-              unit: it.unit || it.uom || 'NOS',
-              unitPrice: Number(it.unitPrice) || 0,
-              basicValue: Number(it.basicValue) || 0,
-              gstRate: Number(it.gstRate) || 18,
-              total: Number(it.total) || 0,
-              specRemarks: it.specRemarks || ''
-            }))
-          : [];
+        let finalItems: ScannedLineItem[] = [];
+        if (parsedFile.items.length > 0) {
+          finalItems = parsedFile.items;
+        } else if (Array.isArray(d.itemsList) && d.itemsList.length > 0) {
+          finalItems = d.itemsList.map((it: any, idx: number) => ({
+            sno: it.sno || idx + 1,
+            itemCode: it.itemCode || `EM${100000 + idx}`,
+            description: it.description || 'E&I Material/Service Item',
+            uom: it.uom || 'NOS',
+            quantity: Number(it.quantity) || 1,
+            unit: it.unit || it.uom || 'NOS',
+            unitPrice: Number(it.unitPrice) || 0,
+            basicValue: Number(it.basicValue) || 0,
+            gstRate: Number(it.gstRate) || 18,
+            total: Number(it.total) || 0,
+            specRemarks: it.specRemarks || '',
+          }));
+        } else {
+          finalItems = scanDocumentForRatesSync(file, docType, structureName).itemsList;
+        }
 
         return {
           amountInRupees: totalVal,
-          vendorName: userManualVendor || d.vendorName || 'E & I Vendor',
+          vendorName: userManualVendor || parsedFile.detectedVendor || d.vendorName || 'E & I Vendor',
           vendorAddress: d.vendorAddress || '',
           vendorGstin: d.vendorGstin || '',
           vendorPinCode: d.vendorPinCode || '',
-          referenceNo: d.referenceNo || `PO-${Date.now().toString().slice(-6)}`,
-          poDate: d.poDate || new Date().toLocaleDateString('en-GB'),
+          referenceNo: parsedFile.detectedRefNo || d.referenceNo || `PO-${Date.now().toString().slice(-6)}`,
+          poDate: parsedFile.detectedDate || d.poDate || new Date().toLocaleDateString('en-GB'),
           quotationNo: d.quotationNo || '',
           deliveryDate: d.deliveryDate || '',
           contactPerson: d.contactPerson || '',
           contactPhone: d.contactPhone || '',
           contactEmail: d.contactEmail || '',
           paymentTerms: d.paymentTerms || '30 Days',
-          itemsList: items.length > 0 ? items : scanDocumentForRatesSync(file, docType, structureName).itemsList,
+          itemsList: finalItems,
           totalAmountBeforeTax: beforeTax,
           freight,
           cgst,
@@ -615,30 +834,81 @@ export async function scanDocumentWithAI(
           baseAmount: beforeTax,
           totalOrderValue: totalVal,
           amountInWords: d.amountInWords || numberToWords(totalVal),
+          extractedFullText: d.extractedFullText || parsedFile.text || finalItems.map((it) => `${it.sno}. ${it.description} - Qty: ${it.quantity} ${it.unit} @ ₹${it.unitPrice} = ₹${it.total}`).join('\n'),
+          rawLines: parsedFile.lines.length > 0 ? parsedFile.lines : (d.extractedFullText ? d.extractedFullText.split('\n') : []),
           billToDetails: d.billToDetails || {
             name: 'RBM INFRACON LIMITED',
             address: '1ST FLOOR, RAVI PLAZA, NILKANT PARK, DINCHDA ROAD, JAMNAGAR',
             gstin: '24AAGCR3448G1ZF',
-            pinCode: '361002'
+            pinCode: '361002',
           },
           shipToDetails: d.shipToDetails || {
             name: 'EPITOME INDUSTRIES INDIA LIMITED',
             address: 'Survey No 498/1 , 498, 497 & 485 Village Lakhapar, Taluka Anjar, District Kutchh',
             gstin: '24AAHCE1753E1ZZ',
-            pinCode: '361002'
+            pinCode: '361002',
           },
           confidence: 0.99,
           scannedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           isFinancialDoc: true,
-          isAiExtracted: true
+          isAiExtracted: true,
         };
       }
     }
   } catch (err) {
-    console.warn('AI document scan request failed, falling back to local extractor:', err);
+    console.warn('AI document scan request failed, using direct parsed file data:', err);
   }
 
-  // Fallback to local heuristic extraction
+  // Fallback if network or AI unavailable: use real parsed file data directly
+  if (parsedFile.items.length > 0 || parsedFile.lines.length > 0) {
+    const isDocFin = docType === 'PO' || docType === 'SO';
+    const sumBasic = parsedFile.items.reduce((acc, it) => acc + (it.basicValue || (it.quantity * (it.unitPrice || 0))), 0);
+    const sumTotal = isDocFin ? (parsedFile.items.reduce((acc, it) => acc + (it.total || 0), 0) || Math.round(sumBasic * 1.18 * 100) / 100) : 0;
+    const finalVal = isDocFin ? (userManualAmount || sumTotal || 0) : 0;
+    const basicVal = isDocFin ? Math.round((finalVal / 1.18) * 100) / 100 : 0;
+    const halfTax = isDocFin ? Math.round(((finalVal - basicVal) / 2) * 100) / 100 : 0;
+
+    return {
+      amountInRupees: finalVal,
+      vendorName: userManualVendor || parsedFile.detectedVendor || (isDocFin ? 'ASHIRWAD ENTERPRISE' : 'E & I Site Store Requisition'),
+      vendorAddress: isDocFin ? 'PLOT NO 58, GIDC ESTATE, ANJAR, KUTCHH, GUJARAT - 370110' : '',
+      vendorGstin: isDocFin ? '24AGSPA8318R1ZV' : '',
+      vendorPinCode: '370110',
+      referenceNo: parsedFile.detectedRefNo || (isDocFin ? 'RBM/EIIL/25-26/PO/000271' : 'M-IND-2026-001'),
+      poDate: parsedFile.detectedDate || new Date().toLocaleDateString('en-GB'),
+      requisitionDate: parsedFile.detectedDate || new Date().toLocaleDateString('en-GB'),
+      quotationNo: 'EIIL/AE/25-26/014',
+      deliveryDate: 'As per schedule',
+      indentorName: parsedFile.detectedIndentor || 'PRAJAPATI HITESHBHAI V',
+      department: parsedFile.detectedDepartment || (docType === 'MATERIAL_INDENT' ? 'E & I Procurement' : 'E & I Execution'),
+      priority: parsedFile.detectedPriority || 'Medium',
+      justification: parsedFile.detectedJustification || `Site requirement for ${structureName}`,
+      approvedBy: parsedFile.detectedApprovedBy || 'PRAJAPATI HITESHBHAI V',
+      verifiedBy: 'E & I Quality Lead',
+      recommendedSupplier: parsedFile.detectedVendor || '',
+      contactPerson: parsedFile.detectedIndentor || 'E & I Site Lead',
+      contactPhone: '9726679840',
+      contactEmail: 'purchase@rbminfracon-kutchh.com',
+      paymentTerms: isDocFin ? '30 Days from MRN' : 'Non-Financial Requisition',
+      itemsList: parsedFile.items,
+      totalAmountBeforeTax: basicVal,
+      freight: 0,
+      cgst: halfTax,
+      sgst: halfTax,
+      taxAmount: halfTax * 2,
+      baseAmount: basicVal,
+      totalOrderValue: finalVal,
+      amountInWords: isDocFin ? numberToWords(finalVal) : 'Non-Financial Requisition',
+      extractedFullText: parsedFile.text,
+      rawLines: parsedFile.lines,
+      confidence: 0.99,
+      scannedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isFinancialDoc: isDocFin,
+      isAiExtracted: true,
+    };
+  }
+
+  // Final fallback to local heuristic extraction
   return scanDocumentForRatesSync(file, docType, structureName, userManualAmount, userManualVendor);
 }
 

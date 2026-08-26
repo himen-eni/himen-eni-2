@@ -206,6 +206,28 @@ export function downloadDocumentFile(doc: DocumentItem, project?: StructureProje
     XLSX.utils.book_append_sheet(wb, wsItems, isDocFinancial ? 'Itemized Rates' : 'Bill of Quantities');
   }
 
+  // 3. Full Line-by-Line Scanned Document Transcript Sheet
+  if (doc.rawLines && doc.rawLines.length > 0) {
+    const transcriptData = [
+      ['SCANNED DOCUMENT LINE-BY-LINE TRANSCRIPT', ''],
+      ['Line #', 'Verbatim Scanned Line Content'],
+      ...doc.rawLines.map((line, idx) => [idx + 1, line]),
+    ];
+    const wsTranscript = XLSX.utils.aoa_to_sheet(transcriptData);
+    wsTranscript['!cols'] = [{ wch: 8 }, { wch: 100 }];
+    XLSX.utils.book_append_sheet(wb, wsTranscript, 'Full Transcript');
+  } else if (doc.extractedFullText) {
+    const lines = doc.extractedFullText.split('\n').map((l) => l.trim()).filter(Boolean);
+    const transcriptData = [
+      ['SCANNED DOCUMENT LINE-BY-LINE TRANSCRIPT', ''],
+      ['Line #', 'Verbatim Scanned Line Content'],
+      ...lines.map((line, idx) => [idx + 1, line]),
+    ];
+    const wsTranscript = XLSX.utils.aoa_to_sheet(transcriptData);
+    wsTranscript['!cols'] = [{ wch: 8 }, { wch: 100 }];
+    XLSX.utils.book_append_sheet(wb, wsTranscript, 'Full Transcript');
+  }
+
   // Trigger Excel File Download
   const cleanRef = (doc.referenceNo || 'DOC').replace(/[/\\?%*:|"<>]/g, '_');
   const cleanName = (doc.name || 'Export').replace(/\.[^/.]+$/, '').replace(/[/\\?%*:|"<>]/g, '_');

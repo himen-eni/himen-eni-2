@@ -413,7 +413,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
           department: scan.department || 'E & I Engineering',
           notes: notes || undefined,
           aiScanned: true,
-          itemsList: scan.itemsList
+          itemsList: scan.itemsList,
+          extractedFullText: scan.extractedFullText,
+          rawLines: scan.rawLines || (scan.extractedFullText ? scan.extractedFullText.split('\n') : undefined),
         };
       });
 

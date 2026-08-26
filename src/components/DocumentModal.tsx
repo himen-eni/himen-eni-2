@@ -47,7 +47,9 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
 }) => {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(initialDocId || null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'digitized' | 'original'>('digitized');
+  const [viewMode, setViewMode] = useState<'digitized' | 'transcript' | 'original'>('digitized');
+  const [copiedText, setCopiedText] = useState<boolean>(false);
+  const [transcriptSearch, setTranscriptSearch] = useState<string>('');
   const [activeFileDataUrl, setActiveFileDataUrl] = useState<string | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
@@ -401,7 +403,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
                 {/* On-Screen Document Viewer Header Bar */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#1e293b]">
                   <div className="flex items-center gap-2">
-                    {/* View Switcher: AI Digitized vs Original */}
+                    {/* View Switcher: AI Digitized vs Transcript vs Original */}
                     <div className="flex items-center bg-[#131d33] p-0.5 rounded-xl border border-[#1e293b]">
                       <button
                         onClick={() => setViewMode('digitized')}
@@ -417,6 +419,17 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
                         <span>AI Digitized Sheet</span>
                       </button>
                       <button
+                        onClick={() => setViewMode('transcript')}
+                        className={`px-3 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all ${
+                          viewMode === 'transcript'
+                            ? 'bg-[#a855f7] text-white shadow-sm'
+                            : 'text-[#94a3b8] hover:text-white'
+                        }`}
+                      >
+                        <FileText className="w-3 h-3" />
+                        <span>Scanned Lines ({activeDoc.rawLines?.length || (activeDoc.extractedFullText ? activeDoc.extractedFullText.split('\n').length : activeDoc.itemsList?.length || 0)})</span>
+                      </button>
+                      <button
                         onClick={() => setViewMode('original')}
                         className={`px-3 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all ${
                           viewMode === 'original'
@@ -425,7 +438,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
                         }`}
                       >
                         <Eye className="w-3 h-3" />
-                        <span>Original Document</span>
+                        <span>Original File</span>
                         {(activeFileDataUrl || activeDoc.fileDataUrl) && (
                           <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80]" />
                         )}
@@ -691,6 +704,103 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
                         </div>
                       </div>
                     )}
+                  </div>
+                ) : viewMode === 'transcript' ? (
+                  /* VIEW MODE 3: SCANNED WORD-BY-WORD & LINE-BY-LINE TRANSCRIPT */
+                  <div className="bg-[#111827] border border-[#1e293b] rounded-2xl p-5 md:p-6 shadow-2xl flex flex-col gap-4 text-[#f8fafc]">
+                    <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#1e293b]">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-5 h-5 text-[#a855f7]" />
+                          <h4 className="text-[15px] font-bold text-white">
+                            Scanned Document Line-by-Line Transcript
+                          </h4>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#a855f7]/20 text-[#c084fc] border border-[#a855f7]/30">
+                            Fidelity Scan
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#94a3b8] mt-0.5">
+                          Every word, specification, and line scanned directly from {activeDoc.originalFileName || activeDoc.name}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            const fullText = activeDoc.extractedFullText || (activeDoc.rawLines ? activeDoc.rawLines.join('\n') : activeDoc.itemsList?.map(it => `${it.sno || 1}. ${it.description} - ${it.quantity} ${it.unit}`).join('\n') || '');
+                            navigator.clipboard.writeText(fullText);
+                            setCopiedText(true);
+                            setTimeout(() => setCopiedText(false), 2000);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-[#1e293b] hover:bg-[#334155] border border-[#334155] text-[11px] font-bold text-[#c084fc] flex items-center gap-1.5 transition-colors"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          <span>{copiedText ? 'Copied to Clipboard!' : 'Copy Full Text'}</span>
+                        </button>
+                        <button
+                          onClick={() => handleDownloadExcel(activeDoc)}
+                          className="px-3 py-1.5 rounded-xl bg-[#22c55e]/20 hover:bg-[#22c55e]/30 border border-[#22c55e]/40 text-[11px] font-bold text-[#4ade80] flex items-center gap-1.5"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Download as Excel</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Search / Filter Bar within transcript */}
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Search word, specification, item code in scanned lines..."
+                        value={transcriptSearch}
+                        onChange={(e) => setTranscriptSearch(e.target.value)}
+                        className="flex-1 bg-[#0f172a] border border-[#1e293b] rounded-xl px-3.5 py-2 text-[12px] text-white placeholder-[#64748b] focus:outline-none focus:border-[#a855f7]"
+                      />
+                      {transcriptSearch && (
+                        <button
+                          onClick={() => setTranscriptSearch('')}
+                          className="px-2.5 py-2 rounded-xl bg-[#1e293b] text-[11px] text-[#94a3b8] hover:text-white"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Lines Display Container */}
+                    <div className="bg-[#0b101b] rounded-xl border border-[#1e293b] p-4 max-h-[600px] overflow-y-auto font-mono text-[11px] space-y-1 divide-y divide-[#1e293b]/40">
+                      {(() => {
+                        const lines = activeDoc.rawLines && activeDoc.rawLines.length > 0
+                          ? activeDoc.rawLines
+                          : activeDoc.extractedFullText
+                          ? activeDoc.extractedFullText.split('\n').filter(Boolean)
+                          : activeDoc.itemsList && activeDoc.itemsList.length > 0
+                          ? activeDoc.itemsList.map(it => `${it.sno || 1}. ${it.description} | Qty: ${it.quantity} ${it.unit}${isFinancial ? ` | Rate: ₹${it.unitPrice} | Total: ₹${it.total}` : ''}`)
+                          : ['[No raw lines recorded for this legacy document. Click "AI Digitized Sheet" to view full document layout.]'];
+
+                        const filtered = transcriptSearch
+                          ? lines.filter(l => l.toLowerCase().includes(transcriptSearch.toLowerCase()))
+                          : lines;
+
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="p-8 text-center text-[#64748b]">
+                              No lines matching "{transcriptSearch}"
+                            </div>
+                          );
+                        }
+
+                        return filtered.map((line, idx) => (
+                          <div key={idx} className="pt-1.5 pb-1 flex items-start gap-3 hover:bg-[#131d33]/50 px-2 rounded">
+                            <span className="text-[#64748b] select-none w-8 text-right shrink-0">
+                              {idx + 1}
+                            </span>
+                            <span className="text-[#e2e8f0] break-words flex-1 whitespace-pre-wrap leading-relaxed">
+                              {line}
+                            </span>
+                          </div>
+                        ));
+                      })()}
+                    </div>
                   </div>
                 ) : (
                   /* VIEW MODE 2: AI DIGITIZED SHEET (Full official layout for Indents and PO/SO) */

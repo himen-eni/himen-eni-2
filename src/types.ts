@@ -68,6 +68,8 @@ export interface DocumentItem {
     total?: number; // Total Amount in ₹
     specRemarks?: string; // Technical specification / make / standard for Indents
   }>;
+  extractedFullText?: string; // Full line-by-line transcribed text of the document
+  rawLines?: string[]; // All individual lines scanned from the document
 }
 
 export interface DocumentSection {
