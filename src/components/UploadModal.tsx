@@ -79,16 +79,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       if (defaultProject) setSelectedProjectId(defaultProject.id);
       if (defaultDocType) setDocType(defaultDocType);
       
-      const prefix =
-        defaultDocType === 'MATERIAL_INDENT'
-          ? 'M-IND'
-          : defaultDocType === 'SERVICE_INDENT'
-          ? 'S-IND'
-          : defaultDocType === 'PO'
-          ? 'PO'
-          : 'SO';
-      
-      setRefNo(`${prefix}-2026-${Math.floor(1000 + Math.random() * 9000)}`);
+      setRefNo('');
       setSelectedFiles([]);
       setFileDataUrls({});
       setFileScanResults({});
@@ -106,15 +97,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   const handleCategoryChange = (newType: DocumentType) => {
     setDocType(newType);
-    const prefix =
-      newType === 'MATERIAL_INDENT'
-        ? 'M-IND'
-        : newType === 'SERVICE_INDENT'
-        ? 'S-IND'
-        : newType === 'PO'
-        ? 'PO'
-        : 'SO';
-    setRefNo(`${prefix}-2026-${Math.floor(1000 + Math.random() * 9000)}`);
+    setRefNo('');
 
     if (selectedFiles.length > 0) {
       runAiScanOnFiles(selectedFiles, newType);

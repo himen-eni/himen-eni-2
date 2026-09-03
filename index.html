@@ -2,9 +2,77 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function() {
+        // Prevent benign Vite HMR websocket connection noise in container environment
+        if (typeof window !== 'undefined') {
+          var OrigWS = window.WebSocket;
+          if (OrigWS) {
+            window.WebSocket = function(url, protocols) {
+              if (
+                protocols === 'vite-hmr' ||
+                (typeof url === 'string' && (url.includes('vite') || url.includes('/@vite/')))
+              ) {
+                return {
+                  readyState: 1, // OPEN
+                  send: function() {},
+                  close: function() {},
+                  addEventListener: function() {},
+                  removeEventListener: function() {},
+                  dispatchEvent: function() { return false; },
+                  onopen: null,
+                  onmessage: null,
+                  onerror: null,
+                  onclose: null,
+                };
+              }
+              return new OrigWS(url, protocols);
+            };
+            window.WebSocket.prototype = OrigWS.prototype;
+            window.WebSocket.CONNECTING = OrigWS.CONNECTING;
+            window.WebSocket.OPEN = OrigWS.OPEN;
+            window.WebSocket.CLOSING = OrigWS.CLOSING;
+            window.WebSocket.CLOSED = OrigWS.CLOSED;
+          }
+
+          var origConsoleError = console.error;
+          console.error = function() {
+            var arg = arguments[0];
+            var str = typeof arg === 'string' ? arg : (arg && (arg.message || String(arg))) || '';
+            if (
+              str.includes('WebSocket') ||
+              str.includes('websocket') ||
+              str.includes('[vite]')
+            ) {
+              return;
+            }
+            return origConsoleError.apply(console, arguments);
+          };
+
+          window.addEventListener('unhandledrejection', function(event) {
+            var reason = event.reason;
+            var str = (reason && (reason.message || reason.stack || String(reason))) || '';
+            if (str.includes('WebSocket') || str.includes('websocket') || str.includes('[vite]')) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          }, true);
+
+          window.addEventListener('error', function(event) {
+            var str = (event && (event.message || (event.error && event.error.message))) || '';
+            if (str.includes('WebSocket') || str.includes('websocket') || str.includes('[vite]')) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          }, true);
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Project Compass - Enterprise Project & Document Management</title>
-    <meta name="description" content="Project Compass - Structure Explorer and Dumping Yard document management platform." />
+    <title>E & I Documents - Electrical & Instrumentation Engineering Structure Explorer</title>
+    <meta name="description" content="Electrical & Instrumentation Engineering Structure Explorer, Document Management & AI PO/SO Rate Extraction System" />
+    <meta property="og:title" content="E & I Documents - Electrical & Instrumentation Engineering Structure Explorer" />
+    <meta property="og:description" content="Electrical & Instrumentation Engineering Structure Explorer, Document Management & AI PO/SO Rate Extraction System" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">

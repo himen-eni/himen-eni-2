@@ -1,21 +1,81 @@
 import * as XLSX from 'xlsx';
 import { DocumentItem, StructureProject, DocumentType, DocumentSection } from '../types';
 import { formatRupees } from './aiRateScanner';
+import { getDocumentBlob } from './storageUtils';
+
+/**
+ * Helper to trigger browser download of a Blob or data URL with full cross-browser support
+ */
+export function triggerBrowserDownload(dataUrlOrBlobUrl: string, fileName: string): boolean {
+  try {
+    let url = dataUrlOrBlobUrl;
+    let isObjectUrl = false;
+
+    if (dataUrlOrBlobUrl.startsWith('data:')) {
+      const parts = dataUrlOrBlobUrl.split(',');
+      const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/octet-stream';
+      const bstr = atob(parts[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+      }
+      const blob = new Blob([u8arr], { type: mime });
+      url = URL.createObjectURL(blob);
+      isObjectUrl = true;
+    }
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName || 'document';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    if (isObjectUrl) {
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }
+    return true;
+  } catch (err) {
+    console.warn('Error triggering browser download:', err);
+    return false;
+  }
+}
 
 /**
  * Downloads the original uploaded file (PDF, Excel, Word, Image) if fileDataUrl is stored.
  */
 export function downloadOriginalFile(doc: DocumentItem): boolean {
   if (doc.fileDataUrl) {
-    const link = document.createElement('a');
-    link.href = doc.fileDataUrl;
-    link.download = doc.originalFileName || doc.name || 'document';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    return true;
+    return triggerBrowserDownload(doc.fileDataUrl, doc.originalFileName || doc.name || 'document');
   }
   return false;
+}
+
+/**
+ * Asynchronously retrieves the original file from memory or IndexedDB, downloading it,
+ * with seamless fallback to a generated Excel register if no binary file was stored.
+ */
+export async function downloadOriginalFileAsync(doc: DocumentItem, project?: StructureProject): Promise<void> {
+  if (doc.fileDataUrl) {
+    const success = triggerBrowserDownload(doc.fileDataUrl, doc.originalFileName || doc.name || 'document');
+    if (success) return;
+  }
+
+  if (doc.id) {
+    try {
+      const blobData = await getDocumentBlob(doc.id);
+      if (blobData) {
+        const success = triggerBrowserDownload(blobData, doc.originalFileName || doc.name || 'document');
+        if (success) return;
+      }
+    } catch (e) {
+      console.warn('IndexedDB download fetch error:', e);
+    }
+  }
+
+  // Fallback: Generate full multi-sheet Excel spreadsheet
+  downloadDocumentFile(doc, project);
 }
 
 /**

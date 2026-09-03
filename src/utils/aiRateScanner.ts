@@ -473,53 +473,57 @@ export async function parseUploadedFileContent(file: File): Promise<{
           const fullRowText = row.map((c) => String(c)).join(' ');
 
           if (!foundRefNo) {
-            const refMatch = fullRowText.match(/(?:Indent\s*No|Requisition\s*No|PO\s*No|Order\s*No|Doc\s*No|Reference\s*No|Ref\s*No)\s*[:=\-]?\s*([A-Za-z0-9\/-]+)/i);
+            const refMatch = fullRowText.match(/(?:Indent\s*No|Indent\s*#|Requisition\s*No|Req\s*No|Requisition\s*#|PO\s*No|Order\s*No|Doc\s*No|Reference\s*No|Ref\s*No|PR\s*No|MR\s*No|Material\s*Indent\s*No|Service\s*Indent\s*No|IND\s*NO|INDENT\s*NUMBER|REQ\s*NUMBER|SRV\s*IND\s*NO|MAT\s*IND\s*NO)\s*[:=\-]?\s*([A-Za-z0-9\/-]+)/i);
             if (refMatch) foundRefNo = refMatch[1].trim();
           }
           if (!foundIndentor) {
-            const indMatch = fullRowText.match(/(?:Indentor|Requisitioner|Raised\s*By|Requested\s*By|Created\s*By|Prepared\s*By)\s*[:=\-]?\s*([A-Za-z\s.]{3,40})/i);
+            const indMatch = fullRowText.match(/(?:Indentor|Requisitioner|Raised\s*By|Requested\s*By|Created\s*By|Prepared\s*By|Site\s*Engineer|User)\s*[:=\-]?\s*([A-Za-z\s.]{3,40})/i);
             if (indMatch) foundIndentor = indMatch[1].trim();
           }
           if (!foundVendor) {
-            const venMatch = fullRowText.match(/(?:Vendor|Supplier|Contractor|M\/s\.?)\s*[:=\-]?\s*([A-Za-z0-9\s.,&()\-]{3,50})/i);
+            const venMatch = fullRowText.match(/(?:Vendor|Supplier|Contractor|M\/s\.?|Recommended\s*Vendor|Proposed\s*Contractor)\s*[:=\-]?\s*([A-Za-z0-9\s.,&()\-]{3,50})/i);
             if (venMatch && !venMatch[1].toLowerCase().includes('rbm infracon')) foundVendor = venMatch[1].trim();
           }
           if (!foundDepartment) {
-            const depMatch = fullRowText.match(/(?:Department|Dept)\s*[:=\-]?\s*([A-Za-z\s.&]{3,40})/i);
+            const depMatch = fullRowText.match(/(?:Department|Dept|Section|Division)\s*[:=\-]?\s*([A-Za-z\s.&]{3,40})/i);
             if (depMatch) foundDepartment = depMatch[1].trim();
           }
           if (!foundDate) {
-            const dateMatch = fullRowText.match(/(?:Date|PO\s*Date|Indent\s*Date|Req\s*Date)\s*[:=\-]?\s*([0-9]{1,2}[-\/.][0-9]{1,2}[-\/.][0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3}\s+[0-9]{2,4})/i);
+            const dateMatch = fullRowText.match(/(?:Date|PO\s*Date|Indent\s*Date|Req\s*Date|Requisition\s*Date)\s*[:=\-]?\s*([0-9]{1,2}[-\/.][0-9]{1,2}[-\/.][0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3}\s+[0-9]{2,4})/i);
             if (dateMatch) foundDate = dateMatch[1].trim();
           }
           if (!foundApprovedBy) {
-            const appMatch = fullRowText.match(/(?:Approved\s*By|Verified\s*By|Checked\s*By|Authorized\s*By)\s*[:=\-]?\s*([A-Za-z\s.]{3,40})/i);
+            const appMatch = fullRowText.match(/(?:Approved\s*By|Verified\s*By|Checked\s*By|Authorized\s*By|Approver|Signatory)\s*[:=\-]?\s*([A-Za-z\s.]{3,40})/i);
             if (appMatch) foundApprovedBy = appMatch[1].trim();
+          }
+          if (!foundJustification) {
+            const justMatch = fullRowText.match(/(?:Justification|Purpose|Reason|Application|Remarks|Scope\s*Summary)\s*[:=\-]?\s*([A-Za-z0-9\s.,\-_&]{5,80})/i);
+            if (justMatch) foundJustification = justMatch[1].trim();
           }
 
           // Detect Priority
-          if (/urgent|emergency/i.test(fullRowText)) foundPriority = 'Emergency';
-          else if (/high priority/i.test(fullRowText)) foundPriority = 'High';
+          if (/urgent|emergency|critical/i.test(fullRowText)) foundPriority = 'Emergency';
+          else if (/high priority|high/i.test(fullRowText)) foundPriority = 'High';
 
           // Detect Header Row
           if (headerRowIdx === -1) {
             const lowerRow = row.map((c) => String(c).toLowerCase().trim());
-            const hasDesc = lowerRow.some((c) => c.includes('desc') || c.includes('particular') || c.includes('item') || c.includes('scope') || c.includes('material') || c.includes('work') || c.includes('service'));
-            const hasQty = lowerRow.some((c) => c === 'qty' || c.includes('quantity') || c.includes('nos') || c === 'qnty');
+            const hasDesc = lowerRow.some((c) => c.includes('desc') || c.includes('particular') || c.includes('item') || c.includes('scope') || c.includes('material') || c.includes('work') || c.includes('service') || c.includes('goods') || c.includes('activity') || c.includes('equipment'));
+            const hasQty = lowerRow.some((c) => c === 'qty' || c.includes('quantity') || c.includes('nos') || c === 'qnty' || c.includes('req qty') || c.includes('indent qty'));
 
             if (hasDesc || (hasQty && lowerRow.length >= 2)) {
               headerRowIdx = r;
               lowerRow.forEach((val, idx) => {
-                if (val === 'sr' || val === 'sno' || val === 's.no' || val === 'sl' || val === 'sl.no' || val === 'item no') colMap.sno = idx;
-                else if (val.includes('code') || val.includes('item code') || val.includes('mat code') || val.includes('service code')) colMap.itemCode = idx;
-                else if (val.includes('desc') || val.includes('particular') || val.includes('scope') || val.includes('material') || val.includes('work')) colMap.desc = idx;
-                else if (val === 'qty' || val.includes('quant') || val === 'qnty') colMap.qty = idx;
-                else if (val === 'unit' || val === 'uom' || val.includes('unit')) colMap.unit = idx;
+                if (val === 'sr' || val === 'sno' || val === 's.no' || val === 'sl' || val === 'sl.no' || val === 'sl no' || val === 'item no' || val === 'pos') colMap.sno = idx;
+                else if (val.includes('code') || val.includes('item code') || val.includes('mat code') || val.includes('service code') || val.includes('part no') || val.includes('tag no')) colMap.itemCode = idx;
+                else if (val.includes('desc') || val.includes('particular') || val.includes('scope') || val.includes('material') || val.includes('work') || val.includes('goods') || val.includes('service') || val.includes('activity') || val.includes('equipment') || val.includes('details')) colMap.desc = idx;
+                else if (val === 'qty' || val.includes('quant') || val === 'qnty' || val.includes('req qty') || val.includes('indent qty')) colMap.qty = idx;
+                else if (val === 'unit' || val === 'uom' || val === 'u.o.m' || val.includes('unit') || val.includes('meas')) colMap.unit = idx;
                 else if (val.includes('rate') || val.includes('unit price') || val.includes('price') || val === 'unit rate') colMap.rate = idx;
                 else if (val.includes('basic') || (val.includes('amount') && !val.includes('total'))) colMap.basic = idx;
                 else if (val.includes('gst') || val.includes('tax') || val.includes('vat')) colMap.tax = idx;
                 else if (val.includes('total') || val.includes('net') || val.includes('gross')) colMap.total = idx;
-                else if (val.includes('remark') || val.includes('spec') || val.includes('make') || val.includes('standard')) colMap.remarks = idx;
+                else if (val.includes('remark') || val.includes('spec') || val.includes('make') || val.includes('standard') || val.includes('brand') || val.includes('technical')) colMap.remarks = idx;
               });
               if (colMap.desc === -1) {
                 colMap.desc = lowerRow.findIndex((c) => c.length > 2);

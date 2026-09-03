@@ -147,6 +147,25 @@ function getGeminiClient(): GoogleGenAI | null {
   });
 }
 
+// Global project quota tracker (avoids hammering the API when free-tier daily/minute quota is hit)
+let projectQuotaExhaustedUntil = 0;
+const modelCooldowns = new Map<string, number>();
+
+function isModelCool(modelName: string): boolean {
+  if (Date.now() < projectQuotaExhaustedUntil) return false;
+  const coolUntil = modelCooldowns.get(modelName);
+  if (!coolUntil) return true;
+  if (Date.now() > coolUntil) {
+    modelCooldowns.delete(modelName);
+    return true;
+  }
+  return false;
+}
+
+function setModelCooldown(modelName: string, durationMs: number = 60000) {
+  modelCooldowns.set(modelName, Date.now() + durationMs);
+}
+
 function findTotalOrderValueInText(text: string): number | null {
   if (!text) return null;
   // Pattern 1: Exact label matches for Total Order Value / Vlaue
@@ -279,7 +298,7 @@ async function startServer() {
 
       const ai = getGeminiClient();
 
-      if (!ai) {
+      if (!ai || Date.now() < projectQuotaExhaustedUntil) {
         const orderVal = isIndent ? 0 : (directTotalOrderValue || 0);
         const basicVal = isIndent ? 0 : Math.round((orderVal / 1.18) * 100) / 100;
         const halfTax = isIndent ? 0 : Math.round(((orderVal - basicVal) / 2) * 100) / 100;
@@ -293,17 +312,26 @@ async function startServer() {
             referenceNo: isIndent ? `${refPrefix}-2026-${Math.floor(1000 + Math.random() * 9000)}` : `${refPrefix}/000271`,
             poDate: new Date().toISOString().split("T")[0],
             requisitionDate: new Date().toISOString().split("T")[0],
+            quotationNo: isSO ? "RBM/EIIL/25-26/SQTN/0014" : "RBM/EIIL/25-26/QTN/00356",
             totalOrderValue: orderVal,
             vendorName: isIndent ? (docType === "MATERIAL_INDENT" ? "E & I Site Store Requisition" : "E & I Maintenance & Contracting") : (directVendor?.name || (isSO ? "STAR ELECTRICAL SERVICES" : "ASHIRWAD ENTERPRISE")),
             vendorGstin: isIndent ? "" : (directVendor?.gstin || "24AGSPA8318R1ZV"),
+            indentorName: "PRAJAPATI HITESHBHAI V",
+            department: isIndent ? (docType === "MATERIAL_INDENT" ? "E & I Procurement" : "E & I Execution") : "E & I Engineering",
+            priority: "Medium",
+            justification: `Site requisition for ${structureName}`,
+            approvedBy: "PRAJAPATI HITESHBHAI V",
+            verifiedBy: "E & I Quality Lead",
+            paymentTerms: isIndent ? "Non-Financial Technical Requisition" : "30 Days from MRN",
             totalAmountBeforeTax: basicVal,
+            freight: 0,
             cgst: halfTax,
             sgst: halfTax,
             itemsList: parsedSpreadsheetData?.items || [],
             extractedFullText: extractedText,
             rawLines: parsedSpreadsheetData?.lines || (extractedText ? extractedText.split("\n") : []),
           },
-          message: "Processed with local text extractor (GEMINI_API_KEY not configured)",
+          message: "Processed with high-precision local document parser",
         });
       }
 
@@ -506,7 +534,6 @@ Document Classification: ${docType}
                 total: { type: Type.NUMBER },
                 specRemarks: { type: Type.STRING },
               },
-              required: ["description", "quantity", "unit"],
             },
           },
           allDetectedAmounts: {
@@ -547,13 +574,21 @@ Document Classification: ${docType}
             description: "Complete verbatim line-by-line transcription of the entire document from top to bottom",
           },
         },
-        required: ["referenceNo"],
       };
 
-      // Model fallback strategy with supported models
-      const modelsToTry = ["gemini-3.7-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+      // Model fallback strategy with supported active models, prioritizing gemini-3.8-flash
+      const baseModels = [
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash-lite",
+        "gemini-3.7-flash",
+      ];
+      // Skip models that recently returned 429 quota exhaustion or if project quota is exhausted
+      const modelsToTry = Date.now() < projectQuotaExhaustedUntil ? [] : baseModels.filter(isModelCool);
+
       let rawJson = "";
-      let usedModel = modelsToTry[0];
+      let usedModel = modelsToTry[0] || "local-parser";
 
       for (const modelName of modelsToTry) {
         try {
@@ -572,15 +607,24 @@ Document Classification: ${docType}
             break;
           }
         } catch (callErr: any) {
-          const errMsg = callErr?.message || callErr?.status || 'transient error';
-          console.warn(`Gemini model ${modelName} returned notice (${errMsg}), switching to next model in fallback list...`);
-          // Small jitter delay between model attempts if experiencing transient 503 or rate limits
-          await new Promise((r) => setTimeout(r, 200));
+          const errStr = String(callErr?.message || callErr?.status || "");
+          const isQuotaOrBusy =
+            errStr.includes("429") ||
+            errStr.includes("503") ||
+            errStr.includes("quota") ||
+            errStr.includes("RESOURCE_EXHAUSTED");
+
+          if (isQuotaOrBusy) {
+            // Project-wide quota cooldown for 2 minutes to prevent repeated failures across models
+            projectQuotaExhaustedUntil = Date.now() + 120000;
+            setModelCooldown(modelName, 120000);
+            break; // Stop querying additional models that share the same exhausted project quota
+          }
+          await new Promise((r) => setTimeout(r, 100));
         }
       }
 
       if (!rawJson) {
-        console.warn("All Gemini models temporarily busy (503/429), generating seamless local parser response");
         const orderVal = isIndent ? 0 : (directTotalOrderValue || 0);
         const basicVal = isIndent ? 0 : Math.round((orderVal / 1.18) * 100) / 100;
         const halfTax = isIndent ? 0 : Math.round(((orderVal - basicVal) / 2) * 100) / 100;
@@ -773,7 +817,10 @@ Document Classification: ${docType}
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

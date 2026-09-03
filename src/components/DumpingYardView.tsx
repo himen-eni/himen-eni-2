@@ -21,6 +21,7 @@ import { StructureProject, DocumentSection, DocumentType } from '../types';
 import { formatRupees, formatCompactRupees } from '../utils/aiRateScanner';
 import {
   downloadDocumentFile,
+  downloadOriginalFileAsync,
   downloadProjectArchive,
   downloadSectionArchive,
   downloadAllStructuresReport
@@ -250,10 +251,10 @@ export const DumpingYardView: React.FC<DumpingYardViewProps> = ({
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    downloadDocumentFile(doc, project);
+                                    downloadOriginalFileAsync(doc, project);
                                   }}
                                   className="p-0.5 text-[#94a3b8] hover:text-[#4ade80]"
-                                  title="Download Excel (.xlsx)"
+                                  title="Download file"
                                 >
                                   <Download className="w-3 h-3" />
                                 </button>
@@ -363,10 +364,10 @@ export const DumpingYardView: React.FC<DumpingYardViewProps> = ({
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    downloadDocumentFile(doc, project);
+                                    downloadOriginalFileAsync(doc, project);
                                   }}
                                   className="p-0.5 text-[#94a3b8] hover:text-[#4ade80]"
-                                  title="Download Excel (.xlsx)"
+                                  title="Download PO file"
                                 >
                                   <Download className="w-3 h-3" />
                                 </button>
@@ -463,10 +464,10 @@ export const DumpingYardView: React.FC<DumpingYardViewProps> = ({
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    downloadDocumentFile(doc, project);
+                                    downloadOriginalFileAsync(doc, project);
                                   }}
                                   className="p-0.5 text-[#94a3b8] hover:text-[#38bdf8]"
-                                  title="Download Excel (.xlsx)"
+                                  title="Download Service Indent file"
                                 >
                                   <Download className="w-3 h-3" />
                                 </button>
@@ -576,10 +577,10 @@ export const DumpingYardView: React.FC<DumpingYardViewProps> = ({
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    downloadDocumentFile(doc, project);
+                                    downloadOriginalFileAsync(doc, project);
                                   }}
                                   className="p-0.5 text-[#94a3b8] hover:text-[#38bdf8]"
-                                  title="Download Excel (.xlsx)"
+                                  title="Download SO file"
                                 >
                                   <Download className="w-3 h-3" />
                                 </button>

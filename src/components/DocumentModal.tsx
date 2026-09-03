@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { StructureProject, DocumentSection, DocumentItem, DocumentType } from '../types';
 import { formatRupees } from '../utils/aiRateScanner';
-import { downloadDocumentFile, downloadOriginalFile } from '../utils/documentUtils';
+import { downloadDocumentFile, downloadOriginalFile, downloadOriginalFileAsync } from '../utils/documentUtils';
 import { getDocumentBlob } from '../utils/storageUtils';
 
 interface DocumentModalProps {
@@ -146,10 +146,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({
 
   const handleDownloadOriginal = (doc: DocumentItem) => {
     const docWithUrl = { ...doc, fileDataUrl: activeFileDataUrl || doc.fileDataUrl };
-    const downloaded = downloadOriginalFile(docWithUrl);
-    if (!downloaded) {
-      downloadDocumentFile(doc, project);
-    }
+    downloadOriginalFileAsync(docWithUrl, project);
   };
 
   const getPriorityBadgeClass = (priority?: string) => {

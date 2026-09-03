@@ -23,6 +23,7 @@ import { StructureProject, DocumentSection, DocumentType, DocumentItem } from '.
 import { formatRupees, formatCompactRupees } from '../utils/aiRateScanner';
 import {
   downloadDocumentFile,
+  downloadOriginalFileAsync,
   downloadProjectArchive,
   downloadSectionArchive,
   downloadAllStructuresReport
@@ -417,10 +418,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          downloadDocumentFile(doc, project);
+                                          downloadOriginalFileAsync(doc, project);
                                         }}
                                         className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#4ade80] transition-colors"
-                                        title="Download this file (.xlsx)"
+                                        title="Download this file"
                                       >
                                         <Download className="w-3.5 h-3.5" />
                                       </button>
@@ -525,10 +526,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          downloadDocumentFile(doc, project);
+                                          downloadOriginalFileAsync(doc, project);
                                         }}
                                         className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#4ade80] transition-colors"
-                                        title="Download PO file (.xlsx)"
+                                        title="Download PO file"
                                       >
                                         <Download className="w-3.5 h-3.5" />
                                       </button>
@@ -643,10 +644,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          downloadDocumentFile(doc, project);
+                                          downloadOriginalFileAsync(doc, project);
                                         }}
                                         className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#38bdf8] transition-colors"
-                                        title="Download this file (.xlsx)"
+                                        title="Download this file"
                                       >
                                         <Download className="w-3.5 h-3.5" />
                                       </button>
@@ -751,10 +752,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          downloadDocumentFile(doc, project)}
-                                        }
+                                          downloadOriginalFileAsync(doc, project);
+                                        }}
                                         className="p-1 rounded hover:bg-[#1e293b] text-[#94a3b8] hover:text-[#38bdf8] transition-colors"
-                                        title="Download SO file (.xlsx)"
+                                        title="Download SO file"
                                       >
                                         <Download className="w-3.5 h-3.5" />
                                       </button>
